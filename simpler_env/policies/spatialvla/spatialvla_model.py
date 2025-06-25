@@ -8,7 +8,7 @@ from collections import deque
 from PIL import Image
 import torch
 import cv2 as cv
-
+import json
 from simpler_env.utils.action.action_ensemble import ActionEnsembler
 
 
@@ -42,8 +42,10 @@ class SpatialVLAInference:
         self.unnorm_key = unnorm_key
 
         print(f"*** policy_setup: {policy_setup}, unnorm_key: {unnorm_key} ***")
-        
-        saved_model_path = "/data/SimplerEnv/spatialvla-4b-224-pt"
+        # read model path from configs
+        current_dir = os.path.dirname(os.path.abspath(__file__))
+        config_path = os.path.abspath(os.path.join(current_dir, "../../../../model_config.json"))
+        saved_model_path = json.load(open(config_path, "r"))["spatial_path"] 
         self.processor = AutoProcessor.from_pretrained(
             saved_model_path, trust_remote_code=True
         )

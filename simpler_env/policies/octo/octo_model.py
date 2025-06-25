@@ -5,12 +5,12 @@ import os
 import jax
 import matplotlib.pyplot as plt
 import numpy as np
-from octo.model.octo_model import OctoModel
+from octo.octo.model.octo_model import OctoModel
 import tensorflow as tf
 from transformers import AutoTokenizer
 from transforms3d.euler import euler2axangle
 
-from simpler_env.utils.action.action_ensemble import ActionEnsembler
+from src.utils.action_ensemble import ActionEnsembler
 
 
 class OctoInference:
@@ -43,21 +43,14 @@ class OctoInference:
         self.policy_setup = policy_setup
         self.dataset_id = dataset_id
 
-        if model is not None:
-            self.tokenizer, self.tokenizer_kwargs = None, None
-            self.model = model
-            self.action_mean = self.model.dataset_statistics[dataset_id]["action"]["mean"]
-            self.action_std = self.model.dataset_statistics[dataset_id]["action"]["std"]
-        elif model_type in ["octo-base", "octo-small"]:
+        model_type = "octo-base"
             # released huggingface octo models
-            self.model_type = f"hf://rail-berkeley/{model_type}"
-            self.tokenizer, self.tokenizer_kwargs = None, None
-            self.model = OctoModel.load_pretrained(self.model_type)
-            self.action_mean = self.model.dataset_statistics[dataset_id]["action"]["mean"]
-            self.action_std = self.model.dataset_statistics[dataset_id]["action"]["std"]
-        else:
-            raise NotImplementedError()
-
+        self.model_type = f"hf://rail-berkeley/{model_type}"
+        self.tokenizer, self.tokenizer_kwargs = None, None
+        self.model = OctoModel.load_pretrained(self.model_type)
+        self.action_mean = self.model.dataset_statistics[dataset_id]["action"]["mean"]
+        self.action_std = self.model.dataset_statistics[dataset_id]["action"]["std"]
+        
         self.image_size = image_size
         self.action_scale = action_scale
         self.horizon = horizon
@@ -65,7 +58,9 @@ class OctoInference:
         self.exec_horizon = exec_horizon
         self.action_ensemble = action_ensemble
         self.action_ensemble_temp = action_ensemble_temp
+        
         self.rng = jax.random.PRNGKey(init_rng)
+        
         for _ in range(5):
             # the purpose of this for loop is just to match octo server's inference seeds
             self.rng, _key = jax.random.split(self.rng)  # each shape [2,]
@@ -143,6 +138,7 @@ class OctoInference:
         if task_description is not None:
             if task_description != self.task_description:
                 # task description has changed; reset the policy state
+                print("state_chaged")
                 self.reset(task_description)
 
         assert image.dtype == np.uint8
@@ -156,6 +152,7 @@ class OctoInference:
         # print("octo local rng", self.rng, key)
 
         input_observation = {"image_primary": images, "pad_mask": pad_mask}
+        # print("input_observation", input_observation)
         norm_raw_actions = self.model.sample_actions(
             input_observation,
             self.task,
@@ -163,7 +160,6 @@ class OctoInference:
         )
         raw_actions = norm_raw_actions * self.action_std[None] + self.action_mean[None]
         raw_actions = raw_actions[0]  # remove batch, becoming (action_pred_horizon, action_dim)
-
         assert raw_actions.shape == (self.pred_action_horizon, 7)
         if self.action_ensemble:
             raw_actions = self.action_ensembler.ensemble_action(raw_actions)
@@ -175,7 +171,6 @@ class OctoInference:
             "open_gripper": np.array(raw_actions[0, 6:7]),  # range [0, 1]; 1 = open; 0 = close
         }
 
-        # process raw_action to obtain the action to be sent to the maniskill2 environment
         action = {}
         action["world_vector"] = raw_action["world_vector"] * self.action_scale
         action_rotation_delta = np.asarray(raw_action["rotation_delta"], dtype=np.float64)
@@ -238,7 +233,7 @@ class OctoInference:
             # self.gripper_is_closed = (action['gripper'] < 0.0)
 
         action["terminate_episode"] = np.array([0.0])
-
+        print("action", action["gripper"])
         return raw_action, action
 
     def visualize_epoch(self, predicted_raw_actions: Sequence[np.ndarray], images: Sequence[np.ndarray], save_path: str) -> None:
